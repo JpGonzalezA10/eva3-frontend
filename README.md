@@ -1,71 +1,72 @@
-# Getting Started with Create React App
+# EVA3 Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Evaluación Parcial N°3 — ISY1101 Introducción a Herramientas DevOps — Duoc UC
 
-## Available Scripts
+## Descripción
 
-In the project directory, you can run:
+Aplicación React que consume la API del backend, desplegada en Amazon EKS y
+expuesta públicamente mediante un Load Balancer.
 
-### `npm start`
+## Arquitectura
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- **Build multi-stage:** la imagen Docker compila la aplicación React (etapa
+  `node:20-alpine`) y luego sirve los archivos estáticos con **nginx**
+  (etapa `nginx:alpine`).
+- **Proxy interno:** nginx redirige cualquier petición a `/api/*` hacia
+  `http://backend-service/api/*`, resolviendo el nombre `backend-service` por
+  DNS interno de Kubernetes. Esto evita tener que conocer una URL pública del
+  backend en tiempo de build — el frontend y el backend se comunican
+  exclusivamente dentro del clúster.
+- **Exposición pública:** Service de tipo `LoadBalancer`, que provisiona
+  automáticamente un Elastic Load Balancer de AWS, asignando una URL pública
+  (`*.elb.amazonaws.com`) accesible desde internet.
+- **Réplicas:** Deployment con 2 réplicas.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Cómo correr localmente
 
-### `npm test`
+```bash
+npm install
+npm start
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Cómo construir y desplegar manualmente
 
-### `npm run build`
+```bash
+docker build -t eva3-frontend .
+docker tag eva3-frontend:latest <ECR_URI>:latest
+docker push <ECR_URI>:latest
+kubectl set image deployment/frontend frontend=<ECR_URI>:latest
+kubectl rollout status deployment/frontend
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## Verificar la URL pública
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```bash
+kubectl get svc frontend-service
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+La columna `EXTERNAL-IP` muestra la URL del Load Balancer. Al abrirla en el
+navegador, la página debe mostrar el mensaje obtenido desde el backend,
+confirmando la comunicación Front → Back a través del proxy interno de nginx.
 
-### `npm run eject`
+## CI/CD
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+El workflow `.github/workflows/deploy.yml` automatiza:
+**build → push a ECR → deploy en EKS** en cada push a la rama `main`.
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## Problemas encontrados y solución
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+1. **Resolución DNS de `backend-service` en build local:** al construir y probar
+   la imagen del frontend de forma aislada (fuera del clúster), nginx falla al
+   iniciar porque no puede resolver `backend-service` (`host not found in
+   upstream`). Esto es esperado: el nombre solo existe dentro del clúster EKS,
+   una vez que el Service del backend está desplegado. La validación de la
+   comunicación Front → Back se realizó directamente en el clúster.
+2. **Credenciales temporales de AWS Academy Learner Lab:** mismo problema
+   documentado en el repositorio `eva3-backend` — los Secrets de GitHub Actions
+   deben actualizarse manualmente cada vez que la sesión del lab renueva sus
+   credenciales.
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## Autor
 
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
-# Pipeline actualizado Wed Jun 24 21:10:13 UTC 2026
+JP González A. — ISY1101, Duoc UC
